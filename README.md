@@ -2,6 +2,8 @@
 
 Zoom を Stream Deck のように操作する、Mac 用のツールです。Zoom に映す映像と音を OBS で作り、画面のボタンとキーボードのショートカットで切り替えます。
 
+個人が作ったツールで、Zoom や Elgato（Stream Deck）の公式のものではありません。
+
 ## できること
 
 - **音楽をきれいに流す**：キーボードの音や雑音を消した声と、パソコンの音楽（YouTube、Spotify など）を混ぜて Zoom に送ります。相手の画面共有中でも流せます。
@@ -21,14 +23,15 @@ Zoom を Stream Deck のように操作する、Mac 用のツールです。Zoom
 
 ## セットアップ
 
-1. このフォルダを好きな場所に置きます。
-2. ターミナルで次を実行します。足りない物（Node、ffmpeg、OBS、BlackHole 2ch、アバター用のブラウザ）を入れて、アプリ「Zoom Deck」を作ります。途中で Mac のパスワードを聞かれることがあります。
+1. ターミナルで次を実行します。足りない物（Node、ffmpeg、OBS、BlackHole 2ch、アバター用のブラウザ）を入れて、アプリ「Zoom Deck」を作ります。途中で Mac のパスワードを聞かれることがあります。
 
    ```bash
+   git clone https://github.com/inose-yuudai/zoom-deck.git
+   cd zoom-deck
    ./setup.command
    ```
 
-3. `/アプリケーション` の「Zoom Deck」を開きます。OBS、アバターの画面、ボタン盤が順に開きます。
+2. `/アプリケーション` の「Zoom Deck」を開きます。OBS、アバターの画面、ボタン盤が順に開きます。
 
    初回だけ、次の確認が出ます。
 
@@ -41,7 +44,7 @@ Zoom を Stream Deck のように操作する、Mac 用のツールです。Zoom
 
    許可したあとでうまく動かないときは、OBS を閉じて「Zoom Deck」を開き直してください。
 
-4. Zoom の設定を変えます。
+3. Zoom の設定を変えます。
 
    | 項目 | 設定 |
    |---|---|
@@ -95,7 +98,7 @@ OBS を配信など別の用途で開いているときは、Zoom Deck は OBS �
 
 ## 更新
 
-新しい版を受け取ったら、もう一度 `./setup.command` を実行します。入れたモデル、背景、効果音、動画は消えません。
+`zoom-deck` のフォルダで `git pull` してから、もう一度 `./setup.command` を実行します。入れたモデル、背景、効果音、動画は消えません。
 
 ## アンインストール
 
@@ -120,3 +123,7 @@ OBS を配信など別の用途で開いているときは、Zoom Deck は OBS �
 ## 使っているもの
 
 [THIRD_PARTY.md](THIRD_PARTY.md) にまとめてあります。
+
+## ライセンス
+
+[MIT](LICENSE)
