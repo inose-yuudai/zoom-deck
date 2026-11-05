@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avatar Cam</title>
+<style>
+  :root { --bg: #00ff00; --panel: rgba(20, 22, 28, 0.88); --fg: #f2f3f5; --muted: #a3a8b3; --accent: #6aa8ff; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; }
+  #stage, #stage canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #c2d, #cReal { display: none; }
+  #bgimg { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+  #panel { position: fixed; top: 12px; right: 12px; width: 300px; max-height: calc(100vh - 24px); overflow-y: auto;
+    background: var(--panel); color: var(--fg); border-radius: 12px; padding: 12px 14px; font-size: 13px; line-height: 1.5;
+    box-shadow: 0 6px 24px rgba(0,0,0,.35); z-index: 10; }
+  #panel h1 { font-size: 14px; margin: 0 0 8px; display: flex; justify-content: space-between; align-items: center; }
+  #panel h1 small { color: var(--muted); font-weight: normal; font-size: 11px; }
+  #panel label { display: block; margin: 8px 0 2px; color: var(--muted); font-size: 12px; }
+  #modelPreview { display: block; width: 72px; height: 72px; margin-top: 6px; border-radius: 10px; object-fit: cover; background: #252832; }
+  #modelPreview[hidden] { display: none; }
+  #panel select, #panel input[type=color], #panel button { width: 100%; font: inherit; padding: 5px 6px; border-radius: 6px; border: 1px solid #3a3f4b; background: #252832; color: var(--fg); }
+  #panel input[type=range] { width: 100%; }
+  #panel .row { display: flex; gap: 8px; align-items: center; }
+  #panel .row > * { flex: 1; }
+  #panel .check { display: flex; align-items: center; gap: 6px; margin: 6px 0; color: var(--fg); font-size: 12px; }
+  #panel .check input { margin: 0; }
+  #panel details { margin-top: 10px; border-top: 1px solid #3a3f4b; padding-top: 6px; }
+  #panel summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  #panel .hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
+  #expr { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  #expr button { width: auto; flex: 0 0 auto; padding: 3px 7px; font-size: 11px; }
+  #status { margin-top: 8px; font-size: 11px; color: var(--muted); white-space: pre-line; }
+  #status.err { color: #ff8a8a; }
+  #preview { position: fixed; left: 12px; bottom: 12px; width: 200px; border-radius: 8px; transform: scaleX(-1); z-index: 9; box-shadow: 0 4px 16px rgba(0,0,0,.35); }
+  #drop { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; font-size: 28px; color: #fff;
+    background: rgba(0,0,0,.55); z-index: 20; pointer-events: none; }
+  body.dragging #drop { display: flex; }
+
+  /* ---- 離席中モード（Zoom Deck の「離席中」で表示） */
+  #brbBack, #brbFront { position: fixed; inset: 0; display: none; pointer-events: none; overflow: hidden; }
+  body.brb #brbBack, body.brb #brbFront { display: block; }
+  body.brb { background: linear-gradient(135deg, #ffd6e7, #d9e8ff 45%, #e6dcff 75%, #fff0c9); background-size: 300% 300%; animation: brbSky 14s ease infinite; }
+  @keyframes brbSky { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+  #brbBack { z-index: 0; }
+  #stage { z-index: 1; }
+  #brbFront { z-index: 2; }
+  .floaty { position: absolute; bottom: -60px; font-size: 28px; opacity: .75; animation: rise linear infinite; }
+  @keyframes rise { 0% { transform: translateY(0) rotate(0deg); opacity: 0; } 10% { opacity: .8; } 100% { transform: translateY(-115vh) rotate(25deg); opacity: 0; } }
+  .brb-card { position: absolute; right: 6vw; top: 50%; transform: translateY(-50%); width: 42vw; padding: 3.2vw 3vw 2.6vw;
+    background: rgba(255,255,255,.82); border-radius: 3vw; box-shadow: 0 1.5vw 4vw rgba(120, 90, 160, .25); text-align: center; color: #4b3f63;
+    font-family: "Hiragino Maru Gothic ProN", "Hiragino Sans", sans-serif; animation: bob 3.2s ease-in-out infinite; }
+  @keyframes bob { 0%, 100% { transform: translateY(-50%); } 50% { transform: translateY(calc(-50% - 1.2vw)); } }
+  .brb-cup { width: 9vw; height: 9vw; margin: 0 auto .6vw; }
+  .brb-cup .steam { fill: none; stroke: #b9a6d6; stroke-width: 3; stroke-linecap: round; animation: steam 2.4s ease-in-out infinite; opacity: 0; }
+  .brb-cup .steam:nth-of-type(2) { animation-delay: .8s; }
+  .brb-cup .steam:nth-of-type(3) { animation-delay: 1.6s; }
+  @keyframes steam { 0% { transform: translateY(6px); opacity: 0; } 40% { opacity: .9; } 100% { transform: translateY(-10px); opacity: 0; } }
+  .brb-title { font-size: 4.4vw; font-weight: 800; letter-spacing: .08em; white-space: nowrap; }
+  .brb-title span { display: inline-block; animation: hop 1.6s ease-in-out infinite; }
+  @keyframes hop { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-1.1vw); } }
+  .brb-msg { font-size: 2.2vw; margin-top: 1vw; color: #7a6a96; }
+  .brb-timer { margin-top: 1.6vw; display: inline-block; font-size: 1.6vw; color: #8d7fa8; background: #f3eefb; border-radius: 99px; padding: .5vw 1.6vw; }
+  .brb-timer b { font-variant-numeric: tabular-nums; color: #5b4b7a; }
+  .brb-zzz { position: absolute; left: 30vw; top: 16vh; font: 800 3vw "Hiragino Maru Gothic ProN", sans-serif; color: #8e7cc3; }
+  .brb-zzz span { position: absolute; opacity: 0; animation: zzz 3s ease-in infinite; }
+  .brb-zzz span:nth-child(2) { animation-delay: 1s; font-size: .8em; }
+  .brb-zzz span:nth-child(3) { animation-delay: 2s; font-size: .6em; }
+  @keyframes zzz { 0% { transform: translate(0, 0); opacity: 0; } 20% { opacity: 1; } 100% { transform: translate(4vw, -9vh); opacity: 0; } }
+  body.clean #panel, body.clean #preview { display: none !important; }
+  /* マウスが窓の外に出たら（＝OBS に映しながら別作業中）パネルを隠す */
+  #panel, #preview { transition: opacity .25s; }
+  body.away #panel, body.away #preview { opacity: 0; pointer-events: none; }
+  body.clean { cursor: none; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.1.6/lib/three-vrm.module.min.js"
+  }
+}
+</script>
+</head>
+<body>
+<img id="bgimg" alt="">
+<div id="brbBack"></div>
+<div id="stage">
+  <canvas id="c3d"></canvas>
+  <canvas id="c2d"></canvas>
+  <canvas id="cReal"></canvas>
+</div>
+<div id="brbFront">
+  <div class="brb-zzz"><span>Z</span><span>z</span><span>z</span></div>
+  <div class="brb-card">
+    <svg class="brb-cup" viewBox="0 0 64 64">
+      <path class="steam" d="M24 18c-3-4 3-6 0-10"/><path class="steam" d="M32 18c-3-4 3-6 0-10"/><path class="steam" d="M40 18c-3-4 3-6 0-10"/>
+      <path d="M14 26h34v12a15 15 0 0 1-15 15h-4a15 15 0 0 1-15-15z" fill="#f6b8cf"/>
+      <path d="M48 30h3a6 6 0 0 1 0 12h-4" fill="none" stroke="#f6b8cf" stroke-width="4"/>
+      <ellipse cx="31" cy="26" rx="17" ry="3.5" fill="#c98aa6"/>
+      <path d="M24 38q2 3 4 0M34 38q2 3 4 0" fill="none" stroke="#7a4a62" stroke-width="2" stroke-linecap="round"/>
+      <path d="M29 43q2 2 4 0" fill="none" stroke="#7a4a62" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    <div class="brb-title" id="brbTitle"></div>
+    <div class="brb-msg" id="brbMsg">すぐ戻ります！</div>
+    <div class="brb-timer">離席から <b id="brbTime">00:00</b></div>
+  </div>
+</div>
+<video id="preview" playsinline muted></video>
+<div id="drop">.vrm をドロップして読み込み</div>
+
+<div id="panel">
+  <h1>Avatar Cam <small>H キーで UI を隠す</small></h1>
+
+  <label for="model">アバター</label>
+  <select id="model"></select>
+  <img id="modelPreview" alt="" hidden>
+
+  <label for="camera">Web カメラ</label>
+  <select id="camera"><option value="">（起動中…）</option></select>
+
+  <label for="bg">背景</label>
+  <div class="row">
+    <select id="bg">
+      <option value="green">グリーンバック</option>
+      <option value="blue">ブルーバック</option>
+      <option value="white">白</option>
+      <option value="gray">グレー</option>
+      <option value="custom">好きな色</option>
+      <option value="image">画像（ドロップ）</option>
+      <option value="transparent">透明（OBS ブラウザソース用）</option>
+    </select>
+    <input id="bgColor" type="color" value="#2b2f3a" style="flex:0 0 44px">
+  </div>
+
+  <label for="zoom">ズーム</label>
+  <input id="zoom" type="range" min="0.4" max="4" step="0.01">
+  <label for="offY">上下位置</label>
+  <input id="offY" type="range" min="-1" max="1" step="0.005">
+  <label for="offX">左右位置</label>
+  <input id="offX" type="range" min="-1" max="1" step="0.005">
+
+  <label for="smooth">追従の速さ（左: なめらか / 右: 機敏）</label>
+  <input id="smooth" type="range" min="0.05" max="1" step="0.01">
+  <label for="mouth">口の開きやすさ</label>
+  <input id="mouth" type="range" min="0.3" max="3" step="0.05">
+
+  <div class="check"><input id="mirror" type="checkbox"><label for="mirror" style="margin:0;color:inherit">鏡のように動かす（左右反転）</label></div>
+  <div class="check"><input id="showPreview" type="checkbox"><label for="showPreview" style="margin:0;color:inherit">カメラ映像を表示</label></div>
+
+  <label>表情（数字キー 1〜9 / 0 で解除）</label>
+  <div id="expr"></div>
+
+  <details>
+    <summary>詳細（向きが逆に動くとき）</summary>
+    <div class="check"><input id="invYaw" type="checkbox"><label for="invYaw" style="margin:0;color:inherit">左右の首振りを反転</label></div>
+    <div class="check"><input id="invPitch" type="checkbox"><label for="invPitch" style="margin:0;color:inherit">上下のうなずきを反転</label></div>
+    <div class="check"><input id="invRoll" type="checkbox"><label for="invRoll" style="margin:0;color:inherit">首かしげを反転</label></div>
+    <div class="check"><input id="invEyes" type="checkbox"><label for="invEyes" style="margin:0;color:inherit">左右の目（ウインク）を入れ替え</label></div>
+    <button id="reset" type="button" style="margin-top:6px">表示位置をリセット</button>
+  </details>
+
+  <div class="hint" style="color:#ffcf7a">⚠ この窓は Zoom に映すために使っています。閉じたり最小化したりしないでください（他の窓の裏に置くのは OK）。</div>
+  <div class="hint">.vrm ファイルはこの画面にドロップしても読み込めます。パネルはマウスが窓の外に出ると自動で消えます。</div>
+  <div id="status">準備中…</div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

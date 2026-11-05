@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Zoom Deck × YouTube",
+  "version": "1.3.1",
+  "description": "YouTube / YouTube Music の再生状態を Zoom Deck（自分の Mac 上のローカルサーバー）に送り、Deck から一時停止・曲送りできるようにします。",
+  "permissions": ["scripting"],
+  "host_permissions": ["http://127.0.0.1/*", "https://www.youtube.com/*", "https://music.youtube.com/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*", "https://music.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

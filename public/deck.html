@@ -1,0 +1,892 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zoom Deck</title>
+<style>
+  :root {
+    --bg: #111317; --panel: #1a1d23; --key: #23272f; --key-hover: #2b3039; --line: #343a45;
+    --fg: #eef0f3; --muted: #8b93a1;
+    --live: #2fbf71; --mute: #e5484d; --on: #3e8cff; --warn: #f2a93b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; }
+  body { padding: 14px 16px 20px; user-select: none; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  h1 { font-size: 15px; margin: 0; letter-spacing: .02em; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .chip { font-size: 11px; padding: 3px 8px; border-radius: 99px; background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
+  .chip.ok { color: var(--live); border-color: color-mix(in srgb, var(--live) 45%, transparent); }
+  .chip.ng { color: var(--mute); border-color: color-mix(in srgb, var(--mute) 45%, transparent); }
+  h2 { font-size: 11px; font-weight: 600; color: var(--muted); margin: 14px 0 6px; letter-spacing: .08em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+  .key {
+    position: relative; aspect-ratio: 1 / 1; border-radius: 14px; border: 1px solid var(--line); background: var(--key);
+    color: var(--fg); font: inherit; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; padding: 8px; transition: background .12s, transform .06s, border-color .12s;
+  }
+  .key:hover { background: var(--key-hover); }
+  .key:active { transform: scale(.96); }
+  .key:disabled { opacity: .4; cursor: default; }
+  .key svg { width: 34px; height: 34px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .key .label { font-size: 13px; font-weight: 600; }
+  .key .state { font-size: 11px; color: var(--muted); }
+  .key kbd { position: absolute; top: 7px; right: 8px; font: 10px ui-monospace, Menlo, monospace; color: var(--muted); }
+  .key.live { background: color-mix(in srgb, var(--live) 22%, var(--key)); border-color: var(--live); }
+  .key.live .state { color: var(--live); }
+  .key.muted { background: color-mix(in srgb, var(--mute) 22%, var(--key)); border-color: var(--mute); }
+  .key.muted .state { color: var(--mute); }
+  .key.on { background: color-mix(in srgb, var(--on) 22%, var(--key)); border-color: var(--on); }
+  .key.on .state { color: var(--on); }
+  .key.warn { background: color-mix(in srgb, var(--warn) 24%, var(--key)); border-color: var(--warn); }
+  .key.warn .state { color: var(--warn); }
+  .key.small { aspect-ratio: auto; min-height: 60px; padding: 20px 8px 10px; }
+  .key.small .label { font-size: 12px; line-height: 1.35; text-align: center; }
+  .key .emoji { font-size: 30px; line-height: 34px; }
+  .key[hidden] { display: none; }
+  /* モデルのボタン：顔のプレビュー画像（models.json の preview か、VRM に入っているサムネイル） */
+  .key.model { padding-top: 10px; gap: 6px; }
+  .key.model img { width: 72px; height: 72px; border-radius: 12px; object-fit: cover; background: var(--key-hover); }
+  .key.model .noimg { width: 72px; height: 72px; border-radius: 12px; display: grid; place-items: center;
+                      background: var(--key-hover); color: var(--muted); font: 700 18px/1 ui-monospace, Menlo, monospace; }
+  .meter { position: absolute; left: 10px; right: 10px; bottom: 8px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--live); transition: width .1s linear; }
+  .row { display: flex; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .row input[type=range] { flex: 1; accent-color: var(--on); }
+  .row output { font: 12px ui-monospace, Menlo, monospace; color: var(--muted); width: 56px; text-align: right; }
+  .row button { font: inherit; font-size: 12px; color: var(--fg); background: var(--key); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  .empty { grid-column: 1 / -1; font-size: 12px; color: var(--muted); padding: 6px 2px; }
+
+  /* 再生中の音楽 */
+  .np { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px; display: grid; grid-template-columns: 76px 1fr; gap: 10px 12px; }
+  .np img { width: 76px; height: 76px; border-radius: 10px; object-fit: cover; background: var(--key); }
+  .npMain { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+  .npSite { font-size: 10px; color: var(--muted); letter-spacing: .06em; }
+  .npTitle { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .npArtist { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .npBar { height: 4px; border-radius: 4px; background: rgba(255,255,255,.1); margin-top: 8px; overflow: hidden; }
+  .npBar i { display: block; height: 100%; width: 0; background: var(--fg); }
+  .npTime { display: flex; justify-content: space-between; font: 10px ui-monospace, Menlo, monospace; color: var(--muted); margin-top: 3px; }
+  .npCtrls { grid-column: 1 / -1; display: flex; justify-content: center; align-items: center; gap: 10px; }
+  .npCtrls button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--key); color: var(--fg); cursor: pointer; display: grid; place-items: center; font: 600 11px ui-monospace, Menlo, monospace; }
+  .npCtrls button:hover { background: var(--key-hover); }
+  .npCtrls button:active { transform: scale(.94); }
+  .npCtrls button.big { width: 58px; height: 58px; background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .npCtrls svg { width: 20px; height: 20px; fill: currentColor; stroke: none; }
+  .npCtrls button.big svg { width: 26px; height: 26px; }
+  .npCtrls button:disabled { opacity: .35; cursor: default; }
+  .waveBox { grid-column: 1 / -1; }
+  .waveHead { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .waveHead b { font: 600 11px ui-monospace, Menlo, monospace; color: var(--fg); }
+  #wave { width: 100%; height: 56px; display: block; border-radius: 8px; background: rgba(0,0,0,.25); }
+  .npWarn { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); border-radius: 10px; padding: 8px 10px; }
+  .npWarn[hidden] { display: none; }
+  .npWarn button { margin-left: auto; font: inherit; font-size: 12px; color: var(--bg); background: var(--warn); border: 0; border-radius: 7px; padding: 5px 9px; cursor: pointer; }
+  .npEmpty { grid-column: 1 / -1; font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+  /* 離席・CM */
+  .field { display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; }
+  .field label { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .field input[type=text] { flex: 1; min-width: 0; font: inherit; font-size: 13px; color: var(--fg); background: var(--key); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  .field input[type=checkbox] { accent-color: var(--on); }
+  .cmNow { display: flex; align-items: center; gap: 10px; background: color-mix(in srgb, var(--live) 14%, var(--panel)); border: 1px solid var(--live); border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; font-size: 12px; }
+  .cmNow[hidden] { display: none; }
+  .cmNow .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+  .cmNow b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cmNow span { font: 11px ui-monospace, Menlo, monospace; color: var(--muted); }
+  .cmNow button, .vid button, .upload { font: inherit; font-size: 12px; color: var(--fg); background: var(--key); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; cursor: pointer; }
+  .vids { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .vid { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .vid.brbPick { border-color: var(--warn); }
+  .vid video { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; display: block; }
+  .vid .meta { padding: 6px 8px 2px; font-size: 11px; display: flex; justify-content: space-between; gap: 6px; }
+  .vid .meta b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vid .meta span { color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+  .vid .acts { display: flex; gap: 4px; padding: 6px 8px 8px; }
+  .vid .acts button { padding: 4px 6px; font-size: 11px; }
+  .vid .acts .play { flex: 1; background: var(--on); border-color: var(--on); color: #fff; }
+  .vid .acts .pick.on { background: var(--warn); border-color: var(--warn); color: #111; }
+  .upload { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; }
+  .upload input { display: none; }
+  .upbar { height: 4px; border-radius: 4px; background: rgba(255,255,255,.1); margin-top: 6px; overflow: hidden; }
+  .upbar i { display: block; height: 100%; width: 0; background: var(--on); }
+  .upbar[hidden] { display: none; }
+
+  /* 離席ボタン（アニメだけ / CM → アニメ） */
+  .brbRow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .key.wide { aspect-ratio: auto; min-height: 118px; }
+  .key .desc { font-size: 11px; color: var(--muted); text-align: center; line-height: 1.4; }
+  .key.warn .desc { color: var(--fg); }
+  .note { font-size: 11px; color: var(--muted); margin: 6px 2px 0; line-height: 1.5; }
+
+  .chipBtn { cursor: pointer; color: var(--bg); background: var(--warn); border-color: var(--warn); font-weight: 600; }
+  .chipBtn[hidden] { display: none; }
+  footer { margin-top: 22px; display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+  footer button { font: inherit; font-size: 12px; color: var(--mute); background: transparent; border: 1px solid color-mix(in srgb, var(--mute) 50%, transparent); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  footer button:hover { background: color-mix(in srgb, var(--mute) 15%, transparent); }
+
+  /* 背景 */
+  .bgs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity; }
+  .bg { flex: 0 0 132px; scroll-snap-align: start; border-radius: 10px; border: 2px solid var(--line); background: var(--panel); padding: 0; cursor: pointer; overflow: hidden; color: var(--fg); font: inherit; }
+  .bg img, .bg .none { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; }
+  .bg .none { display: grid; place-items: center; background: repeating-conic-gradient(#00c853 0 25%, #00e676 0 50%) 0 0 / 20px 20px; color: #053; font-size: 11px; font-weight: 700; }
+  .bg span { display: block; font-size: 10px; color: var(--muted); padding: 3px 6px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bg { position: relative; }
+  .bg video { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #000; }
+  .bg .badge { position: absolute; top: 4px; left: 4px; font-size: 9px; font-weight: 700; color: #fff; background: rgba(0,0,0,.6); border-radius: 4px; padding: 1px 5px; }
+  .bg .rm { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; line-height: 20px; cursor: pointer; opacity: 0; transition: opacity .15s; }
+  .bg:hover .rm, .bg:focus-within .rm { opacity: 1; }
+  .bg.on { border-color: var(--on); }
+  .bg.on span { color: var(--on); }
+
+  /* 効果音 */
+  h2 .tools { float: right; }
+  h2 .tools button { font: inherit; font-size: 11px; color: var(--fg); background: var(--key); border: 1px solid var(--line); border-radius: 7px; padding: 2px 8px; cursor: pointer; letter-spacing: 0; }
+  h2 .tools button.on { background: var(--warn); border-color: var(--warn); color: #111; }
+  .seTabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; }
+  .seTab { flex: 0 0 auto; font: inherit; font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 4px 12px; cursor: pointer; white-space: nowrap; }
+  .seTab.on { color: var(--fg); border-color: var(--on); background: color-mix(in srgb, var(--on) 18%, var(--panel)); }
+  .seTab .x { margin-left: 6px; color: var(--muted); }
+  .sePads { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+  .pad { position: relative; user-select: none; min-height: 64px; border-radius: 12px; border: 1px solid var(--line); background: var(--key); color: var(--fg); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; padding: 8px 6px; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 1.3; border-top: 3px solid var(--padc, var(--on)); }
+  .pad:hover { background: var(--key-hover); }
+  .pad:active, .pad.hit { transform: scale(.95); background: color-mix(in srgb, var(--padc, var(--on)) 30%, var(--key)); }
+  .pad .ed { display: none; position: absolute; inset: auto 4px 4px 4px; gap: 3px; justify-content: center; }
+  .editing .sePads { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+  .editing .pad { padding-bottom: 34px; }
+  .editing .pad .ed { display: flex; }
+  .pad .ed button, .pad .ed select { font: inherit; font-size: 10px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; cursor: pointer; white-space: nowrap; }
+  .pad .ed select { width: 74px; }
+  #toast { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); background: #000c; color: #fff; font-size: 12px; padding: 7px 12px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Zoom Deck</h1>
+  <div class="chips">
+    <span class="chip" id="chipObs">OBS</span>
+    <span class="chip" id="chipAvatar">アバター</span>
+    <button class="chip chipBtn" id="openAvatar" type="button" hidden>アバター画面を開く</button>
+    <button class="chip chipBtn" id="startObs" type="button" hidden>OBS を起動</button>
+  </div>
+</header>
+
+<h2>再生中の音楽</h2>
+<section class="np" id="np">
+  <img id="npArt" alt="">
+  <div class="npMain">
+    <div class="npSite" id="npSite">YouTube</div>
+    <div class="npTitle" id="npTitle">—</div>
+    <div class="npArtist" id="npArtist"></div>
+    <div class="npBar"><i id="npProg"></i></div>
+    <div class="npTime"><span id="npPos">0:00</span><span id="npDur">0:00</span></div>
+  </div>
+  <div class="npCtrls">
+    <button data-yt="prev" title="前の曲"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+    <button data-yt="seek" data-delta="-10" title="10 秒戻る（←）">-10</button>
+    <button data-yt="toggle" class="big" id="npPlay" title="再生 / 一時停止（P）"><svg viewBox="0 0 24 24"><path id="npPlayIcon" d="M7 4v16l13-8z"/></svg></button>
+    <button data-yt="seek" data-delta="10" title="10 秒進む（→）">+10</button>
+    <button data-yt="next" title="次の曲（N）"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+  </div>
+  <div class="waveBox">
+    <div class="waveHead"><span>Zoom に届いている音楽</span><b id="waveDb">— dB</b></div>
+    <canvas id="wave"></canvas>
+  </div>
+  <div class="npWarn" id="npWarn" hidden>再生中なのに Zoom へ音が届いていません（YouTube の音量や、音を消すアプリも確認）<button type="button" id="npFix">音楽アプリを再接続</button></div>
+  <div class="npWarn" id="npMute" hidden>「音楽: Chrome」だけミュートになっているので、YouTube の音が Zoom に届いていません<button type="button" id="npMuteFix">全部オンに戻す</button></div>
+</section>
+
+<h2>配信</h2>
+<div class="grid">
+  <button class="key" id="kMic" data-action="mic"><kbd>M</kbd>
+    <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/><path class="slash" d="M4 4l16 16" style="display:none"/></svg>
+    <span class="label">マイク</span><span class="state">—</span><span class="meter"><i></i></span></button>
+  <button class="key" id="kMusic" data-action="music"><kbd>B</kbd>
+    <svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+    <span class="label">Zoom へ音楽</span><span class="state">—</span><span class="meter"><i></i></span></button>
+  <button class="key" id="kVcam" data-action="vcam"><kbd>V</kbd>
+    <svg viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/></svg>
+    <span class="label">仮想カメラ</span><span class="state">—</span></button>
+</div>
+
+<h2>効果音 <span class="tools"><button type="button" id="seEditBtn">編集</button></span></h2>
+<div id="seBox">
+  <div class="seTabs" id="seTabs"></div>
+  <div class="grid sePads" id="sePads"></div>
+  <div class="row" style="margin-top:8px;flex-wrap:wrap">
+    <span style="font-size:11px;color:var(--muted)">音量</span>
+    <input id="seVol" type="range" min="-30" max="0" step="1" style="flex:1;min-width:90px">
+    <output id="seVolOut" style="width:44px">— dB</output>
+    <button type="button" id="seStop">■ 止める</button>
+    <label class="upload" style="margin:0">＋ 効果音<input id="seUp" type="file" accept="audio/*,.wav,.mp3,.m4a,.aiff,.ogg,.flac" multiple></label>
+  </div>
+  <div class="field" style="margin-top:6px"><input id="seLocal" type="checkbox"><label for="seLocal" style="color:var(--fg)">効果音を手元（このパソコン）でも聞く</label></div>
+</div>
+
+<h2>離席</h2>
+<div class="brbRow">
+  <button class="key wide" id="kBrb" data-action="brb"><kbd>R</kbd>
+    <svg viewBox="0 0 24 24"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16M8 3v3M12 3v3"/></svg>
+    <span class="label">離席する</span><span class="desc">離席アニメーションだけ</span><span class="state"></span></button>
+  <button class="key wide" id="kBrbCm" data-action="brb" data-withcm="1"><kbd>T</kbd>
+    <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9.5v5l4-2.5z"/></svg>
+    <span class="label">CM を流して離席</span><span class="desc" id="brbCmDesc">CM → 離席アニメーション</span><span class="state"></span></button>
+</div>
+<p class="note">どちらもマイクは自動でミュートされます。離席中にもう一度押すと戻ります（マイクも元どおり）。</p>
+
+<h2>映像</h2>
+<div class="grid">
+  <button class="key" id="kAvatar" data-action="view" data-view="avatar"><kbd>A</kbd>
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/><path d="M8 5l-2-2M16 5l2-2"/></svg>
+    <span class="label">アバター</span><span class="state">—</span></button>
+  <button class="key" id="kCamera" data-action="view" data-view="camera"><kbd>C</kbd>
+    <svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+    <span class="label">実写</span><span class="state">—</span></button>
+  <button class="key" id="kPumpkin" data-action="pumpkin" title="VRM のアバターのまわりにカボチャを浮かせる（Live2D・実写のときは出ません）">
+    <span class="emoji" aria-hidden="true">🎃</span>
+    <span class="label">カボチャ</span><span class="state">—</span></button>
+</div>
+
+<h2>背景（OBS で合成）</h2>
+<div class="bgs" id="bgs"></div>
+<div class="row" style="margin-top:6px">
+  <span style="font-size:11px;color:var(--muted);flex:1">選んだ背景（画像・動画）の上にアバター・離席画面・CM が出ます。✕ で一覧から削除。Zoom のバーチャル背景はオフに。</span>
+  <button type="button" id="bgUnhide" class="upload" style="margin:0" hidden>隠した背景を戻す</button>
+  <label class="upload" style="margin:0">＋ 画像・動画<input id="bgUp" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,.m4v"></label>
+</div>
+
+<h2>CM・動画ライブラリ</h2>
+<div class="field"><label for="brbMsgIn">離席メッセージ</label><input id="brbMsgIn" type="text" maxlength="60" placeholder="すぐ戻ります！"></div>
+<div class="field"><input id="ytPause" type="checkbox"><label for="ytPause" style="color:var(--fg)">CM 中は YouTube を一時停止して、終わったら再開</label></div>
+<div class="field"><input id="cmLocal" type="checkbox"><label for="cmLocal" style="color:var(--fg)">CM の音を手元（このパソコン）でも聞く</label></div>
+<audio id="cmAudio" preload="auto"></audio>
+<div class="cmNow" id="cmNow" hidden><span class="dot"></span><b id="cmName"></b><span id="cmTime"></span><button type="button" id="cmStop">停止</button></div>
+<div class="vids" id="vids"></div>
+<label class="upload">＋ 動画をアップロード<input id="upIn" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska,.m4v,.mkv" multiple></label>
+<div class="upbar" id="upbar" hidden><i></i></div>
+
+<h2>表情（1〜9 / 0 で解除）</h2>
+<div class="grid" id="exprGrid"><div class="empty">アバターの画面を開くと表示されます</div></div>
+
+<h2>アバター切り替え</h2>
+<div class="grid" id="modelGrid"></div>
+
+<h2>音楽の音量</h2>
+<div class="row">
+  <input id="vol" type="range" min="-40" max="0" step="1">
+  <output id="volOut">— dB</output>
+  <button id="refresh" type="button" title="OBS より後に起動した音楽アプリの音を拾い直す">音楽アプリを再接続</button>
+</div>
+
+<footer>
+  <span>ショートカット：⌃⌥ + M / B / V / R / T / A / C / P / N / 1〜9</span>
+  <button type="button" id="quitAll">すべて終了</button>
+</footer>
+
+<div id="toast"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  let state = null;
+  let busy = false;
+
+  function toast(text) {
+    const t = $('toast');
+    t.textContent = text;
+    t.classList.add('show');
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  async function act(body) {
+    try {
+      const r = await fetch('/api/deck/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const res = await r.json();
+      if (!r.ok) throw new Error(res.error);
+      if (res.delivered === 0) toast('アバターの画面が開いていません');
+      poll();
+    } catch (e) {
+      toast(`操作できませんでした: ${e.message}`);
+    }
+  }
+
+  function setKey(el, cls, text) {
+    el.classList.remove('live', 'muted', 'on', 'warn');
+    if (cls) el.classList.add(cls);
+    el.querySelector('.state').textContent = text;
+  }
+
+  const meterWidth = (db) => `${Math.max(0, Math.min(100, ((db + 60) / 60) * 100))}%`;
+
+  function render(st) {
+    state = st;
+    for (const b of $('modelGrid').children) b.classList.toggle('on', b.dataset.model === st.avatar?.model);
+    // カボチャはアバター画面だけの演出なので、OBS につながっていなくても切り替えられる
+    setKey($('kPumpkin'), st.pumpkins ? 'on' : null, st.pumpkins ? '浮かせ中' : 'なし');
+    renderNowPlaying(st);
+    renderCm(st);
+    syncLocalCm(st);
+    const obsOk = st.obs;
+    // OBS が別の用途（Switch 配信など）で使われているときは何も触らない。「Zoom 用に切り替える」で起動処理（確認あり）へ
+    $('chipObs').textContent = obsOk ? 'OBS 接続中' : st.obsOther ? `OBS は別の用途で使用中（${st.obsOther}）` : 'OBS 未接続';
+    $('chipObs').className = `chip ${obsOk ? 'ok' : 'ng'}`;
+    $('startObs').hidden = obsOk;
+    $('startObs').textContent = st.obsOther ? 'Zoom 用に切り替える' : 'OBS を起動';
+    const a = st.avatar;
+    const avatarOk = a.online && !a.hidden;
+    $('chipAvatar').textContent = !a.online ? 'アバター画面なし' : a.hidden ? 'アバター画面が最小化中（映像が止まります）' : a.tracking === 'camera' ? '実写モード' : a.tracking === 'ok' ? 'トラッキング OK' : '顔が見つかりません';
+    $('chipAvatar').className = `chip ${avatarOk && (a.tracking === 'ok' || a.tracking === 'camera') ? 'ok' : avatarOk ? '' : 'ng'}`;
+    $('openAvatar').hidden = avatarOk;
+
+    // 一部の音楽アプリだけミュート：YouTube（Chrome）が止められているときは、すぐに知らせる
+    $('npMute').hidden = !(obsOk && st.music?.partial && st.music.mutedNames.some((n) => /Chrome/.test(n))
+      && st.youtube?.playing && !st.youtube.muted);
+
+    for (const id of ['kMic', 'kMusic', 'kVcam', 'kBrb', 'kBrbCm', 'kAvatar', 'kCamera']) $(id).disabled = !obsOk;
+    if (!obsOk) return;
+
+    setKey($('kMic'), st.mic.muted ? 'muted' : 'live', st.mic.muted ? 'ミュート中' : 'ON AIR');
+    $('kMic').querySelector('.slash').style.display = st.mic.muted ? '' : 'none';
+    if (st.mic.muted) $('kMic').querySelector('.meter i').style.width = '0%';
+    setKey($('kMusic'), st.music.muted ? 'muted' : st.music.partial ? 'warn' : 'on',
+      st.music.muted ? '送っていない' : st.music.partial ? '一部だけ' : '送っている');
+    $('kMusic').title = st.music.partial ? `ミュート中：${st.music.mutedNames.join('、')}（押すと全部オンに戻ります）` : '';
+    if (st.music.muted) $('kMusic').querySelector('.meter i').style.width = '0%';
+    setKey($('kVcam'), st.vcam ? 'live' : null, st.vcam ? '配信中' : '停止');
+    renderBrb(st);
+    setKey($('kAvatar'), st.view === 'avatar' ? 'on' : null, st.view === 'avatar' ? '表示中' : '');
+    setKey($('kCamera'), st.view === 'camera' ? 'on' : null, st.view === 'camera' ? '表示中' : '');
+
+    if (document.activeElement !== $('vol')) {
+      $('vol').value = Math.round(st.music.volumeDb);
+      $('volOut').textContent = `${Math.round(st.music.volumeDb)} dB`;
+    }
+    renderExpressions(a);
+  }
+
+  // VRM の表情名は英語なので日本語で表示
+  const EXPR_LABELS = { happy: '笑顔', angry: '怒り', sad: '悲しい', surprised: '驚き', relaxed: 'リラックス' };
+
+  function renderBrb(st) {
+    const mmss = `${String(Math.floor(st.brbSec / 60)).padStart(2, '0')}:${String(st.brbSec % 60).padStart(2, '0')}`;
+    const cmName = st.brbCm ? st.brbCm.replace(/\.[^.]+$/, '') : null;
+    for (const id of ['kBrb', 'kBrbCm']) {
+      const el = $(id);
+      el.classList.toggle('warn', st.brb);
+      el.querySelector('.label').textContent = st.brb ? '戻る' : id === 'kBrb' ? '離席する' : 'CM を流して離席';
+      el.querySelector('.state').textContent = st.brb ? `離席中 ${mmss}` : '';
+    }
+    $('kBrb').querySelector('.desc').textContent = st.brb ? '押すと離席を終えます' : '離席アニメーションだけ';
+    $('brbCmDesc').textContent = st.brb ? '押すと離席を終えます'
+      : cmName ? `「${cmName}」→ 離席アニメーション` : '離席 CM が未設定（下のライブラリで「離席CM」を選択）';
+    $('kBrbCm').disabled = !st.obs || (!st.brb && !cmName);
+  }
+
+  let exprKey = '';
+  function renderExpressions(a) {
+    const key = JSON.stringify([a.online, a.expressions, a.expression]);
+    if (key === exprKey) return;
+    exprKey = key;
+    const grid = $('exprGrid');
+    grid.innerHTML = '';
+    if (!a.online || !a.expressions.length) {
+      grid.innerHTML = `<div class="empty">${a.online ? 'このモデルには表情がありません' : 'アバターの画面を開くと表示されます'}</div>`;
+      return;
+    }
+    a.expressions.forEach((name, i) => grid.append(makeKey(`${i + 1}`, EXPR_LABELS[name] ?? name, () => act({ action: 'expression', index: i }), a.expression === i)));
+    grid.append(makeKey('0', '解除', () => act({ action: 'expression', index: -1 }), a.expression < 0));
+  }
+
+  function makeKey(kbd, label, onclick, active, small = true) {
+    const b = document.createElement('button');
+    b.className = `key${small ? ' small' : ''}${active ? ' on' : ''}`;
+    b.innerHTML = `${kbd ? `<kbd>${kbd}</kbd>` : ''}<span class="label"></span>`;
+    b.querySelector('.label').textContent = label;
+    b.onclick = onclick;
+    return b;
+  }
+
+  // アプリ窓として開かれたボタン盤は 1 つだけ残す（後から開いた窓が残り、古い窓は自分で閉じる）
+  const APP_WIN = new URLSearchParams(location.search).get('win') === 'app';
+  const BORN = Math.round(performance.timeOrigin);
+  const STATE_URL = `/api/deck/state?from=deck${APP_WIN ? `&win=app&born=${BORN}` : ''}`;
+  // 窓の大きさ・位置を覚えておき、開き直したときに戻す（アプリ窓のときだけ。
+  // 同じブラウザで開くと先に開いた窓の大きさが使われてしまうため、ページ側で直す）
+  function keepWindowBounds(key, defW, defH) {
+    try {
+      const b = JSON.parse(localStorage.getItem(key) || 'null');
+      if (b && b.w > 200 && b.h > 150) { window.resizeTo(b.w, b.h); window.moveTo(b.x, b.y); }
+      else window.resizeTo(defW, defH);
+    } catch { /* 無視 */ }
+    let last = '';
+    setInterval(() => {
+      if (document.hidden) return;
+      const now = JSON.stringify({ x: screenX, y: screenY, w: outerWidth, h: outerHeight });
+      if (now !== last) { last = now; try { localStorage.setItem(key, now); } catch { /* 無視 */ } }
+    }, 2000);
+  }
+  if (APP_WIN) keepWindowBounds('deck-window', 520, 860);
+
+  async function poll() {
+    if (busy) return;
+    busy = true;
+    try {
+      const st = await (await fetch(STATE_URL, { cache: 'no-store' })).json();
+      if (st.close) {
+        window.close();
+        setTimeout(() => location.replace('/closed.html'), 400);
+        return;
+      }
+      render(st);
+    } catch {
+      $('chipObs').textContent = 'サーバー停止中';
+      $('chipObs').className = 'chip ng';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function loadModels() {
+    const models = await (await fetch('/api/models')).json();
+    const grid = $('modelGrid');
+    for (const m of models) {
+      const tag = m.type === 'live2d' ? '2D' : '3D';
+      const b = makeKey(tag, m.name, () => act({ action: 'model', url: m.url }), false);
+      b.classList.add('model');
+      b.dataset.model = `[${tag}] ${m.name}`; // アバター画面が報告するモデル名と同じ形
+      const pic = document.createElement(m.preview ? 'img' : 'div');
+      if (m.preview) {
+        Object.assign(pic, { src: m.preview, alt: '', loading: 'lazy', decoding: 'async' });
+        pic.onerror = () => { const d = document.createElement('div'); d.className = 'noimg'; d.textContent = tag; pic.replaceWith(d); };
+      } else {
+        pic.className = 'noimg';
+        pic.textContent = tag;
+      }
+      b.querySelector('.label').before(pic);
+      grid.append(b);
+    }
+  }
+
+  for (const el of document.querySelectorAll('[data-action]')) {
+    el.addEventListener('click', () => act({ action: el.dataset.action, view: el.dataset.view, withCm: el.dataset.withcm === '1' }));
+  }
+  $('vol').addEventListener('input', (e) => { $('volOut').textContent = `${e.target.value} dB`; });
+  $('vol').addEventListener('change', (e) => act({ action: 'musicVolume', db: Number(e.target.value) }));
+  $('refresh').addEventListener('click', () => act({ action: 'refreshMusic' }).then(() => toast('音楽アプリを再接続しました')));
+
+  const KEYS = { m: { action: 'mic' }, b: { action: 'music' }, v: { action: 'vcam' }, r: { action: 'brb' }, t: { action: 'brb', withCm: true },
+    a: { action: 'view', view: 'avatar' }, c: { action: 'view', view: 'camera' } };
+  window.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === 'INPUT') return;
+    const k = e.key.toLowerCase();
+    if (KEYS[k]) act(KEYS[k]);
+    else if (k === 'p') act({ action: 'yt', command: 'toggle' });
+    else if (k === 'n') act({ action: 'yt', command: 'next' });
+    else if (e.key === 'ArrowLeft') act({ action: 'yt', command: 'seek', delta: -10 });
+    else if (e.key === 'ArrowRight') act({ action: 'yt', command: 'seek', delta: 10 });
+    else if (/^[0-9]$/.test(k)) act({ action: 'expression', index: Number(k) - 1 });
+  });
+
+
+  // ---------------------------------------------------------------- 再生中の音楽（YouTube / YouTube Music）
+  const fmt = (t) => { if (!Number.isFinite(t)) return '--:--'; t = Math.max(0, Math.floor(t || 0)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+  const PLAY = 'M7 4v16l13-8z';
+  const PAUSE = 'M6 4h4v16H6zM14 4h4v16h-4z';
+  let artUrl = '';
+
+  function renderNowPlaying(st) {
+    const y = st.youtube ?? { online: false };
+    const np = $('np');
+    np.querySelectorAll('.npCtrls button').forEach((b) => { b.disabled = !y.online; });
+    if (!y.online) {
+      $('npSite').textContent = 'YouTube / YouTube Music';
+      $('npTitle').textContent = '再生中のタブがありません';
+      $('npArtist').textContent = 'Chrome 拡張「Zoom Deck × YouTube」を入れたブラウザで再生してください';
+      $('npProg').style.width = '0%';
+      $('npPos').textContent = $('npDur').textContent = '0:00';
+      $('npPlayIcon').setAttribute('d', PLAY);
+      if (artUrl) { $('npArt').removeAttribute('src'); artUrl = ''; }
+      return;
+    }
+    $('npSite').textContent = y.site;
+    $('npTitle').textContent = y.title || '（タイトル不明）';
+    $('npArtist').textContent = y.artist || '';
+    if (y.artwork !== artUrl) { artUrl = y.artwork; if (artUrl) $('npArt').src = artUrl; else $('npArt').removeAttribute('src'); }
+    $('npProg').style.width = y.duration ? `${(y.position / y.duration) * 100}%` : '0%';
+    $('npPos').textContent = fmt(y.position);
+    $('npDur').textContent = fmt(y.duration);
+    $('npPlayIcon').setAttribute('d', y.playing ? PAUSE : PLAY);
+  }
+
+  // ---------------------------------------------------------------- 音量の波形（Zoom に届いている音楽）
+  const wave = { hist: new Array(120).fill(-60), quietSince: null };
+  function drawWave(db, sending) {
+    wave.hist.push(db);
+    wave.hist.shift();
+    const c = $('wave');
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const n = wave.hist.length, bw = w / n;
+    const color = getComputedStyle(document.documentElement).getPropertyValue(sending ? '--on' : '--muted');
+    ctx.fillStyle = color;
+    wave.hist.forEach((v, i) => {
+      const amp = Math.max(0.03, (v + 60) / 60) * (h / 2 - 3);
+      ctx.globalAlpha = 0.35 + 0.65 * (i / n);
+      ctx.fillRect(i * bw + 0.5, h / 2 - amp, Math.max(1, bw - 1.5), amp * 2);
+    });
+    ctx.globalAlpha = 1;
+    $('waveDb').textContent = db <= -59.5 ? '無音' : `${db.toFixed(0)} dB`;
+  }
+
+  async function pollLevels() {
+    try {
+      const lv = await (await fetch('/api/deck/levels', { cache: 'no-store' })).json();
+      const sending = state?.music && !state.music.muted;
+      drawWave(sending ? lv.music : -60, sending);
+      if (state?.mic && !state.mic.muted) $('kMic').querySelector('.meter i').style.width = meterWidth(lv.mic);
+      if (sending) $('kMusic').querySelector('.meter i').style.width = meterWidth(lv.music);
+      // YouTube は再生中（ミュートではない）なのに Zoom に音が来ていない状態が 8 秒続いたら知らせる
+      // （曲の静かな部分で誤って出ないよう長めに見る）
+      const playing = state?.youtube?.playing && !state?.youtube?.muted && sending;
+      if (playing && lv.music < -55) wave.quietSince ??= Date.now(); else wave.quietSince = null;
+      $('npWarn').hidden = !$('npMute').hidden || !(wave.quietSince && Date.now() - wave.quietSince > 8000);
+    } catch { /* サーバー停止中 */ }
+  }
+
+  document.querySelectorAll('[data-yt]').forEach((b) => b.addEventListener('click', () =>
+    act({ action: 'yt', command: b.dataset.yt, delta: Number(b.dataset.delta || 0) })));
+  $('npFix').addEventListener('click', () => act({ action: 'refreshMusic' }).then(() => toast('音楽アプリを再接続しました')));
+  $('npMuteFix').addEventListener('click', () => act({ action: 'music', on: true }).then(() => toast('音楽を全部オンに戻しました')));
+  setInterval(() => { if (!document.hidden) pollLevels(); }, 150);
+
+  // ---------------------------------------------------------------- 離席・CM
+  let media = { files: [], settings: {} };
+  async function loadMedia() {
+    media = await (await fetch('/api/media', { cache: 'no-store' })).json();
+    if (document.activeElement !== $('brbMsgIn')) $('brbMsgIn').value = media.settings.brbMessage ?? '';
+    $('ytPause').checked = media.settings.pauseYouTubeOnCm;
+    const box = $('vids');
+    box.innerHTML = '';
+    if (!media.files.length) box.innerHTML = '<div class="empty">まだ動画がありません。下のボタンから追加できます</div>';
+    for (const f of media.files) {
+      const card = document.createElement('div');
+      const picked = media.settings.brbVideo === f.name;
+      card.className = `vid${picked ? ' brbPick' : ''}`;
+      card.innerHTML = `<video preload="metadata" muted playsinline></video>
+        <div class="meta"><b></b><span>--:--</span></div>
+        <div class="acts"><button class="play" type="button">▶ Zoom で流す</button><button class="pick${picked ? ' on' : ''}" type="button" title="「CM を流して離席」で流す動画にする">離席CM</button><button class="del" type="button" title="削除">✕</button></div>`;
+      const v = card.querySelector('video');
+      v.src = `${f.url}#t=1`;
+      v.addEventListener('loadedmetadata', () => { card.querySelector('.meta span').textContent = fmt(v.duration); });
+      card.querySelector('.meta b').textContent = f.name;
+      card.querySelector('.play').onclick = () => act({ action: 'cmPlay', name: f.name });
+      card.querySelector('.pick').onclick = () => saveMediaSettings({ brbVideo: picked ? null : f.name });
+      card.querySelector('.del').onclick = async () => {
+        if (!confirm(`「${f.name}」を削除しますか？`)) return;
+        await fetch('/api/media/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: f.name }) });
+        loadMedia();
+      };
+      box.append(card);
+    }
+  }
+  async function saveMediaSettings(patch) {
+    await fetch('/api/media/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+    loadMedia();
+  }
+  $('brbMsgIn').addEventListener('change', (e) => saveMediaSettings({ brbMessage: e.target.value || 'すぐ戻ります！' }).then(() => toast('離席メッセージを保存しました')));
+  $('ytPause').addEventListener('change', (e) => saveMediaSettings({ pauseYouTubeOnCm: e.target.checked }));
+  $('cmStop').addEventListener('click', () => act({ action: 'cmStop' }));
+
+  function upload(file) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/api/media/upload?name=${encodeURIComponent(file.name)}`);
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) $('upbar').querySelector('i').style.width = `${(e.loaded / e.total) * 100}%`; };
+      xhr.onload = () => (xhr.status < 400 ? resolve() : reject(new Error(JSON.parse(xhr.responseText || '{}').error || xhr.status)));
+      xhr.onerror = () => reject(new Error('通信エラー'));
+      xhr.send(file);
+    });
+  }
+  $('upIn').addEventListener('change', async (e) => {
+    $('upbar').hidden = false;
+    for (const file of e.target.files) {
+      try { await upload(file); toast(`「${file.name}」を追加しました`); } catch (err) { toast(`アップロード失敗: ${err.message}`); }
+    }
+    e.target.value = '';
+    $('upbar').hidden = true;
+    loadMedia();
+  });
+
+  function renderCm(st) {
+    $('cmNow').hidden = !st.cm;
+    if (st.cm) {
+      $('cmName').textContent = `CM 再生中: ${st.cm.name}`;
+      $('cmTime').textContent = `${fmt(st.cm.position)} / ${fmt(st.cm.duration)}`;
+    }
+  }
+
+  $('openAvatar').addEventListener('click', async () => {
+    await fetch('/api/avatar/open', { method: 'POST' });
+    toast('アバター画面を開いています（10 秒ほどで Zoom に映ります）');
+  });
+  $('startObs').addEventListener('click', async () => {
+    $('startObs').disabled = true;
+    await fetch('/api/launch', { method: 'POST' }).catch(() => {});
+    toast(state?.obsOther ? 'Zoom 用に切り替えてよいか、確認の画面を出します' : 'OBS を起動しています（20 秒ほどかかります）');
+    setTimeout(() => { $('startObs').disabled = false; }, 20000);
+  });
+  $('quitAll').addEventListener('click', async () => {
+    if (!confirm('仮想カメラを止めて、OBS・アバター画面・ボタン盤・ショートカットをすべて終了しますか？')) return;
+    await fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
+    toast('終了しています…');
+  });
+
+  // ---------------------------------------------------------------- 背景
+  let bgCurrent = null;
+  async function loadBgs() {
+    const data = await (await fetch('/api/bg', { cache: 'no-store' })).json();
+    bgCurrent = data.current;
+    const box = $('bgs');
+    box.innerHTML = '';
+    const none = document.createElement('div');
+    none.className = `bg${!bgCurrent ? ' on' : ''}`;
+    none.tabIndex = 0;
+    none.innerHTML = '<div class="none">なし</div><span>グリーンのまま</span>';
+    none.onclick = () => pickBg(null);
+    box.append(none);
+    for (const it of data.items) {
+      const b = document.createElement('div');
+      b.className = `bg${bgCurrent === it.id ? ' on' : ''}`;
+      b.tabIndex = 0;
+      if (it.type === 'video') {
+        b.innerHTML = '<video muted loop playsinline preload="metadata"></video><b class="badge">動画</b><span></span>';
+        const v = b.querySelector('video');
+        v.src = `${it.url}#t=1`;
+        b.onmouseenter = () => v.play().catch(() => {});
+        b.onmouseleave = () => v.pause();
+      } else {
+        b.innerHTML = '<img loading="lazy" alt=""><span></span>';
+        b.querySelector('img').src = it.url;
+      }
+      b.querySelector('span').textContent = it.label;
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'rm';
+      rm.textContent = '✕';
+      rm.title = it.removable === 'delete' ? '削除' : '一覧から隠す（Zoom 側は消えません）';
+      rm.onclick = async (e) => {
+        e.stopPropagation();
+        const msg = it.removable === 'delete' ? `「${it.label}」を削除しますか？` : 'この Zoom の背景を一覧から隠しますか？（Zoom 側のファイルは消えません）';
+        if (!confirm(msg)) return;
+        await act({ action: 'bgRemove', id: it.id });
+        loadBgs();
+      };
+      b.append(rm);
+      b.onclick = () => pickBg(it.id);
+      box.append(b);
+    }
+    $('bgUnhide').hidden = !data.hiddenCount;
+  }
+  async function pickBg(id) {
+    await act({ action: 'bg', id });
+    toast(id ? '背景を変更しました' : '背景をなしにしました');
+    loadBgs();
+  }
+  $('bgUp').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    toast(`「${f.name}」をアップロード中…`);
+    const res = await new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/api/bg/upload?name=${encodeURIComponent(f.name)}`);
+      xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) toast(`アップロード中… ${Math.round((ev.loaded / ev.total) * 100)}%`); };
+      xhr.onload = () => { try { resolve({ ok: xhr.status < 400, ...JSON.parse(xhr.responseText) }); } catch { resolve({ ok: false, error: '失敗しました' }); } };
+      xhr.onerror = () => resolve({ ok: false, error: '通信エラー' });
+      xhr.send(f);
+    });
+    e.target.value = '';
+    if (!res.ok) { toast(res.error); return; }
+    await pickBg(res.id);
+  });
+  $('bgUnhide').addEventListener('click', async () => { await act({ action: 'bgShowHidden' }); loadBgs(); });
+
+  // ---------------------------------------------------------------- CM の音を手元でも鳴らす
+  // OBS の CM の音は Zoom 用（BlackHole）にだけ流れるので、同じ動画の音をこの窓でも再生する。
+  // この窓（アバター用ブラウザ）の音は OBS に取り込まれないので、Zoom に二重で届くことはない。
+  let cmLocal = true;
+  try { cmLocal = localStorage.getItem('deck-cm-local') !== '0'; } catch { /* 既定はオン */ }
+  $('cmLocal').checked = cmLocal;
+  $('cmLocal').addEventListener('change', (e) => {
+    cmLocal = e.target.checked;
+    try { localStorage.setItem('deck-cm-local', cmLocal ? '1' : '0'); } catch { /* 無視 */ }
+    if (!cmLocal) $('cmAudio').pause();
+  });
+  let localCm = null;
+  function syncLocalCm(st) {
+    const a = $('cmAudio');
+    const name = st.cm?.name ?? null;
+    if (!cmLocal || !name) {
+      if (localCm) { a.pause(); localCm = null; }
+      return;
+    }
+    if (localCm !== name) {
+      localCm = name;
+      a.src = `/media/${encodeURIComponent(name)}`;
+      a.currentTime = st.cm.position || 0;
+      a.play().catch(() => toast('CM の音を鳴らせませんでした（この窓を一度クリックしてください）'));
+    } else if (Math.abs(a.currentTime - st.cm.position) > 0.6 && !a.seeking) {
+      a.currentTime = st.cm.position; // ずれたら合わせる
+    }
+  }
+
+  // ---------------------------------------------------------------- 効果音
+  const PAD_COLORS = ['#3e8cff', '#f2a93b', '#2fbf71', '#c084fc', '#ff6b8b', '#22c1c3'];
+  let se = { folders: [], volumeDb: -6 };
+  let seFolder = null;
+  let seEditing = false;
+  let seLocal = true;
+  try { seLocal = localStorage.getItem('deck-se-local') !== '0'; } catch { /* 既定はオン */ }
+  $('seLocal').checked = seLocal;
+  $('seLocal').addEventListener('change', (e) => {
+    seLocal = e.target.checked;
+    try { localStorage.setItem('deck-se-local', seLocal ? '1' : '0'); } catch { /* 無視 */ }
+  });
+
+  async function seOp(body) {
+    const r = await fetch('/api/se/op', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await r.json();
+    if (!r.ok) toast(res.error || '失敗しました');
+    await loadSe();
+    return r.ok;
+  }
+
+  async function loadSe() {
+    se = await (await fetch('/api/se', { cache: 'no-store' })).json();
+    if (!se.folders.some((f) => f.folder === seFolder)) seFolder = se.folders[0]?.folder ?? null;
+    if (document.activeElement !== $('seVol')) { $('seVol').value = se.volumeDb; $('seVolOut').textContent = `${se.volumeDb} dB`; }
+    renderSe();
+  }
+
+  function renderSe() {
+    $('seBox').classList.toggle('editing', seEditing);
+    $('seEditBtn').classList.toggle('on', seEditing);
+    $('seEditBtn').textContent = seEditing ? '完了' : '編集';
+    const tabs = $('seTabs');
+    tabs.innerHTML = '';
+    se.folders.forEach((f, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `seTab${f.folder === seFolder ? ' on' : ''}`;
+      b.style.setProperty('--padc', PAD_COLORS[i % PAD_COLORS.length]);
+      b.textContent = `${f.folder}（${f.sounds.length}）`;
+      b.onclick = () => { seFolder = f.folder; renderSe(); };
+      if (seEditing && f.folder === seFolder) {
+        b.ondblclick = null;
+        const ren = document.createElement('span');
+        ren.className = 'x'; ren.textContent = '✎'; ren.title = 'フォルダ名を変更';
+        ren.onclick = async (e) => {
+          e.stopPropagation();
+          const to = prompt('新しいフォルダ名', f.folder);
+          if (to && to !== f.folder && await seOp({ op: 'renameFolder', from: f.folder, to })) { seFolder = to; await loadSe(); }
+        };
+        const del = document.createElement('span');
+        del.className = 'x'; del.textContent = '✕'; del.title = 'フォルダを削除';
+        del.onclick = async (e) => {
+          e.stopPropagation();
+          if (confirm(`フォルダ「${f.folder}」と中の効果音 ${f.sounds.length} 個を削除しますか？`)) await seOp({ op: 'deleteFolder', name: f.folder });
+        };
+        b.append(ren, del);
+      }
+      tabs.append(b);
+    });
+    if (seEditing) {
+      const add = document.createElement('button');
+      add.type = 'button'; add.className = 'seTab'; add.textContent = '＋ フォルダ';
+      add.onclick = async () => {
+        const name = prompt('新しいフォルダ名');
+        if (name && await seOp({ op: 'createFolder', name })) { seFolder = name.trim(); await loadSe(); }
+      };
+      tabs.append(add);
+    }
+
+    const idx = se.folders.findIndex((f) => f.folder === seFolder);
+    const folder = se.folders[idx];
+    const pads = $('sePads');
+    pads.innerHTML = '';
+    if (!folder) { pads.innerHTML = '<div class="empty">「編集」→「＋ フォルダ」でフォルダを作ってください</div>'; return; }
+    if (!folder.sounds.length) pads.innerHTML = '<div class="empty">このフォルダは空です。「＋ 効果音」で追加できます</div>';
+    for (const snd of folder.sounds) {
+      // 編集用のボタン・選択欄を中に入れるので、ボタン要素ではなく div にする
+      const pad = document.createElement('div');
+      pad.className = 'pad';
+      pad.tabIndex = 0;
+      pad.setAttribute('role', 'button');
+      pad.onkeydown = (e) => { if ((e.key === 'Enter' || e.key === ' ') && !seEditing) { e.preventDefault(); playSe(snd, pad); } };
+      pad.style.setProperty('--padc', PAD_COLORS[idx % PAD_COLORS.length]);
+      pad.innerHTML = '<span class="nm"></span><span class="ed"></span>';
+      pad.querySelector('.nm').textContent = snd.name;
+      pad.onclick = () => { if (!seEditing) playSe(snd, pad); };
+      if (seEditing) {
+        const ed = pad.querySelector('.ed');
+        const ren = document.createElement('button'); ren.type = 'button'; ren.textContent = '名前';
+        ren.onclick = async (e) => { e.stopPropagation(); const name = prompt('新しい名前', snd.name); if (name && name !== snd.name) await seOp({ op: 'renameSound', path: snd.path, name }); };
+        const mv = document.createElement('select');
+        mv.append(new Option('移動', ''));
+        for (const f of se.folders) if (f.folder !== folder.folder) mv.append(new Option(`→ ${f.folder}`, f.folder));
+        mv.onclick = (e) => e.stopPropagation();
+        mv.onchange = async () => { if (mv.value) await seOp({ op: 'moveSound', path: snd.path, folder: mv.value }); };
+        const del = document.createElement('button'); del.type = 'button'; del.textContent = '✕';
+        del.onclick = async (e) => { e.stopPropagation(); if (confirm(`「${snd.name}」を削除しますか？`)) await seOp({ op: 'deleteSound', path: snd.path }); };
+        ed.append(ren, mv, del);
+      }
+      pads.append(pad);
+    }
+  }
+
+  function playSe(snd, pad) {
+    pad.classList.add('hit');
+    setTimeout(() => pad.classList.remove('hit'), 180);
+    act({ action: 'sePlay', path: snd.path });
+    if (seLocal) {
+      const a = new Audio(snd.url);
+      a.volume = Math.min(1, Math.pow(10, (Number($('seVol').value) || 0) / 20));
+      a.play().catch(() => {});
+    }
+  }
+
+  $('seEditBtn').addEventListener('click', () => { seEditing = !seEditing; renderSe(); });
+  $('seStop').addEventListener('click', () => act({ action: 'seStop' }));
+  $('seVol').addEventListener('input', (e) => { $('seVolOut').textContent = `${e.target.value} dB`; });
+  $('seVol').addEventListener('change', (e) => act({ action: 'seVolume', db: Number(e.target.value) }));
+  $('seUp').addEventListener('change', async (e) => {
+    const folder = seFolder || '効果音';
+    for (const f of e.target.files) {
+      const r = await fetch(`/api/se/upload?folder=${encodeURIComponent(folder)}&name=${encodeURIComponent(f.name)}`, { method: 'POST', body: f });
+      const res = await r.json();
+      toast(r.ok ? `「${f.name}」を追加しました` : res.error);
+    }
+    e.target.value = '';
+    loadSe();
+  });
+
+  loadSe();
+  loadBgs();
+  loadMedia();
+  loadModels();
+  // カボチャの素材（public/props/pumpkin.glb）が無いときはボタンを出さない
+  fetch('/props/pumpkin.glb', { method: 'HEAD' }).then((r) => { if (!r.ok) $('kPumpkin').hidden = true; }).catch(() => {});
+  poll();
+  // 負荷を抑える：状態は 1 秒ごと、窓が隠れているときはさらに間引く
+  setInterval(() => { if (!document.hidden) poll(); }, 1000);
+  setInterval(() => { if (document.hidden) poll(); }, 5000);
+</script>
+</body>
+</html>

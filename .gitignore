@@ -1,0 +1,9 @@
+.DS_Store
+bin/
+cache/
+media/
+backgrounds/
+sounds/
+models/
+models.json
+view.json
